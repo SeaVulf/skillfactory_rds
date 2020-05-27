@@ -227,7 +227,7 @@ def get_prop_dif(res_df):
     return p_value
 
 # Функция определения статистически значимой зависимости между двумя колонками датафрейма
-def get_col_depend(df, column, sub_column, alpha=0.1):
+def get_col_depend(df, column, sub_column, alpha=0.1, logs=False):
     """The function for determining statistically significant difference 
     between column and sub_column
 
@@ -252,17 +252,16 @@ def get_col_depend(df, column, sub_column, alpha=0.1):
     diff_list = []
 
     #Лист с ответами
-    # Наименование колонки, [Максимальное значение расхождения, Доля пар колонок с расхождением 
-    # от общего числа значений вспомогательного параметра], Текстовый ответ, [Лог теста] 
-    answer_list = ['',['', ''],''] 
-
-    # Датафрейм с подсчитанным распределением значений вспомогательного параметра (колонки) 
-    # по значениям основного параметра (индексы), в долях от количества значений в колонке
-    research_df = pd.crosstab(df[column],df[sub_column],normalize='columns')
-    
+    # Наименование колонки, [Доля пар колонок с расхождением от общего числа комбинаций, 
+    # Максимальное значение расхождения, Среднее значение расхождения], Текстовый ответ, [Лог теста] 
+    answer_list = ['',[0, 0, 0],''] 
+   
     # Датафрейм с подсчитанным распределением значений вспомогательного параметра (колонки) 
     # по значениям основного параметра (индексы) (нужен для оценки размера выборки)
     compare_df = pd.crosstab(df[column],df[sub_column])
+
+    # Датафрейм аналогичный предыдущему, но в долях от количества значений в колонке
+    research_df = pd.crosstab(df[column],df[sub_column],normalize='columns')
 
     # Список проверяемых значений изучаемой колонки
     index_list = list(research_df.index)
@@ -302,37 +301,47 @@ def get_col_depend(df, column, sub_column, alpha=0.1):
                 p_val_list.append(p_value)
 
                 # Если разница в выборочных пропорциях оказалась статистически значимой
-                if p_value <= alpha/len(combinations_all): # Поправка Бонферони на множественную проверку гипотез
+                if p_value <= alpha: # Поправка Бонферони на множественную проверку гипотез была исключена, 
+                #так как требуется получить наибольшее количество потенциально связанных колонок, а отбор идёт 
+                #по макс. расхождению /len(combinations_all)
                     # Логарифмическая характеристика расхождения
-                    diff = str(round(math.log10(alpha/p_value),3))
-                    answer_list.append(f"{column}/{index:5}\t{sub_column}/{list(comb)}\tОБНАРУЖЕНО статистически значимое различие\tlog10(alpha/p_value) = {diff}")
+                    diff = alpha/p_value
                     diff_list.append(diff)
-                else:
+
+                    #Вывод логов
+                    if logs:
+                        log_diff = round(math.log10(alpha/p_value), 3)
+                        answer_list.append(f"{column}/{index:5}\t{sub_column}/{list(comb)}\tОБНАРУЖЕНО статистически значимое различие\tlog10(alpha/p_value) = {log_diff}")          
+                elif logs:
                     answer_list.append(f"{column}/{index:5}\t{sub_column}/{list(comb)}\tстатистически значимое различие НЕ ОБНАРУЖЕНО\tp_value = {round(p_value*100, 2)}%")
-        else:
+        elif logs:
             answer_list.append(f'{column}/{index:5}\tТестирование НЕВОЗМОЖНО, выборка мала.')
             # Вывод бинарного датафрейма
             answer_list.append(bool_ser)
 
+    # ФОРМАТИРОВАНИЕ ВЫВОДА ОТВЕТА
     answer_list[0] = sub_column # Значение рассматриваемой колонки
     # Если есть разница в выборочных пропорциях
     if len(diff_list) > 0:
         # Текстовое сообщение
-        answer_list[2] = f"{column} ~ {sub_column:20}\tОБНАРУЖЕНА статистически значимая связь\t\tlog10(alpha/p_value) = {max(diff_list)}"
-        answer_list[1][0] = max(diff_list)
+        answer_list[1][2] = round(math.log10(sum(diff_list)/len(diff_list)), 3)
+        answer_list[2] = f"{column} ~ {sub_column:20}\tОБНАРУЖЕНА статистически значимая связь\t\tlog10(alpha/p_value) = {answer_list[1][2]}"
+        answer_list[1][1] = round(math.log10(max(diff_list)), 3)
         # Отношение числа статистически значимых различий в комбинациях пар колонок (значений вспомогательного параметра) к 
         # числу значений вспомогательного параметра.
-        if len(research_df.columns) > 0:
-            answer_list[1][1] = round(len(diff_list)/len(research_df.columns), 3) 
+        if len(research_df.index) > 0:
+            answer_list[1][0] = round(len(diff_list)/(len(combinations_all)*len(research_df.index)), 4) 
         else:
-            answer_list[1][1] = '0'
+            answer_list[1][0] = 0
     else:
         if len(p_val_list) == 0:
             p_val_list = [1]
         answer_list[2] = f"{column} ~ {sub_column:20}\tНЕ ОБНАРУЖЕНА статистически значимая связь\t\tmin(p_value) = {round(min(p_val_list)*100,2)}%"
-        answer_list[1][0] = '0'
-        answer_list[1][1] = '0'
-    return [answer_list[0], answer_list[1], answer_list[2], answer_list[3:]]
+    
+    if logs:
+        return [answer_list[0], answer_list[1], answer_list[2], answer_list[3:]]
+    else:
+        return [answer_list[0], answer_list[1], answer_list[2]]
 
 # Функция ознакомления с составом КАТЕГОРИАЛЬНОЙ/РАНГОВОЙ колонки
 def get_cat_compos(df, column, plot=True, rot=0):
@@ -341,12 +350,12 @@ def get_cat_compos(df, column, plot=True, rot=0):
     
     # Имеются ли None-элементы или пробельные пропуски
     nulls_list = find_nulls(df[column])
-    print('\n', nulls_list[0])
 
     # Оценим процентное содержание пропусков
     nulls_sum = nulls_list[1] + nulls_list[2]
+    nul_rel = ''
     if nulls_sum > 0:
-        print(f'Доля пропусков от объёма выборки: {round(nulls_sum/stud_count_total*100, 1)}%')
+        nul_rel = f'Доля пропусков от объёма выборки: {round(nulls_sum/stud_count_total*100, 1)}%'
 
     # Оценим состав данной колонки
     prop_df = pd.DataFrame({'total': df[column].value_counts(), 
@@ -361,24 +370,23 @@ def get_cat_compos(df, column, plot=True, rot=0):
 
         plt.xticks(rotation=rot)
     
-    return [['Состав колонки ' + column, prop_df], nulls_list]
+    return [['Состав колонки ' + column, prop_df], [nulls_list, nul_rel]]
 
 # Функция ознакомления с составом ЧИСЛОВОЙ колонки
-def get_num_compos(df, column, plot=True):
-    answer_list = [['',''],['',''],'']
+def get_num_compos(df, column, plot=True, bin_koef=1):
+    answer_list = [['',''],['',''],['','']]
     
     # Размер выборки
     stud_count_total = len(df)
     
     # Имеются ли None-элементы или пробельные пропуски
     nulls_list = find_nulls(df[column])
-    print('\n', nulls_list[0])
-    answer_list[2] = nulls_list
+    answer_list[2][0] = nulls_list
 
     # Оценим процентное содержание пропусков
     nulls_sum = nulls_list[1] + nulls_list[2]
     if nulls_sum > 0:
-        print(f'Доля пропусков от объёма выборки: {round(nulls_sum/stud_count_total*100, 1)}%')
+        answer_list[2][1] = f'Доля пропусков от объёма выборки: {round(nulls_sum/stud_count_total*100, 1)}%'
 
     # Статистическое описание колонки
     answer_list[0][0] = 'Статистические характеристики колонки ' + column
@@ -395,7 +403,7 @@ def get_num_compos(df, column, plot=True):
     out_ct_df = pd.DataFrame({'outliers_count': out_ser.value_counts()})
     answer_list[1][1] = out_ct_df
     if len(out_ct_df) > 0:
-        answer_list[1][0] = 'Значения выбросов и их количество'
+        answer_list[1][0] = f'Количество выбросов: {len(out_ct_df)}.\n\nЗначения выбросов: '
     else:
         answer_list[1][0] = 'Выбросы не обнаружены'
     
@@ -411,13 +419,13 @@ def get_num_compos(df, column, plot=True):
         # Датафрейм, содержащий значения в границах выбросов
         iqr_ser = df[df[column].between(boards[0], boards[1])][column]
         # Диапазон фактических значений датафрейма
-        board_iqr = iqr_ser.value_counts().index.max() - iqr_ser.value_counts().index.min()
+        board_iqr = int(iqr_ser.value_counts().index.max() - iqr_ser.value_counts().index.min())
     
         axes[1].set_title(column + ' hist')
-    
-        # Построение гистограммы значений без выбросов
-        axes[1].hist(iqr_ser, bins=board_iqr, label='IQR')
 
+        # Построение гистограммы значений без выбросов
+        axes[1].hist(iqr_ser, bins=int(board_iqr/bin_koef), label='IQR')
+        
         if len(out_ct_df) > 0:
             axes[1].hist(out_ser, bins=len(out_ct_df), color='red', label='outliers') # Выбросы
             plt.legend()
@@ -425,7 +433,7 @@ def get_num_compos(df, column, plot=True):
     return answer_list
 
 # Функция поиска связанных колонок
-def find_depends_col(df, column, n_max=5): # n_max - количество колонок для вывода в датафрейме
+def find_depends_col(df, column, n_max=5, alpha=0.1, logs=False): # n_max - количество колонок для вывода в датафрейме
     # Получение списка колонок для анализа (c удалением изучаемой колонки)
     col_list = list(df.columns)
     col_list.remove(column)
@@ -434,9 +442,9 @@ def find_depends_col(df, column, n_max=5): # n_max - количество кол
     all_col = [] # Вывод всех данных для дополнительной обработки
     col_depend = [] # Лист связанных колонок
     for sub_column in col_list:
-        cur_res = get_col_depend(df, column, sub_column)
+        cur_res = get_col_depend(df, column, sub_column, alpha, logs)
         all_col.append(cur_res)
-        if float(cur_res[1][0]) > 0: # Если есть взаимосвязь
+        if cur_res[1][2] > 0: # Если есть взаимосвязь
             col_depend.append(cur_res[2])
     print('\n'.join(col_depend))
 
@@ -446,18 +454,18 @@ def find_depends_col(df, column, n_max=5): # n_max - количество кол
 
     # Получение списка значений
     for col in all_col:
-        if float(col[1][0]) > 0:
-            log_frac_lt.append(float(col[1][0]))
+        if col[1][2] > 0:
+            log_frac_lt.append(float(col[1][2]))
     log_frac_lt = sorted(log_frac_lt, reverse=True)[:n_max] # Сохранение топ-n значений
 
     # Вывод требуемых колонок
     for col in all_col:
-        if float(col[1][0]) in log_frac_lt:
-            lt.append([col[1][1], col[0], col[1][0]])
-    df = pd.DataFrame(lt, columns=['rel_amount', 'col_name', 'log_frac'])
+        if float(col[1][2]) in log_frac_lt:
+            lt.append([col[0], col[1][0], col[1][1], col[1][2]])
+    df = pd.DataFrame(lt, columns=['col_name', 'rel_amount', 'max_log_frac', 'log_mean_frac'])
     print('\nКолонки с наиболее сильной взаимосвязью')
     
-    return [df.sort_values(['log_frac'],ascending=False), all_col]    
+    return [df.sort_values(['log_mean_frac'],ascending=False), all_col]    
 
 # Функция оценки взаимосвязи между изучаемой и другими колонками
 def find_col_relation(df, column, sub_column_list):
